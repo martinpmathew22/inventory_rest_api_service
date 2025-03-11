@@ -1,10 +1,20 @@
 package main
 
 import (
+	"database/sql"
+	"fmt"
+	"log"
 	"net/http"
+	"os"
+	"reflect"
+	"strconv"
 
+	"example.com/inventory_rest_api_service/models"
 	"github.com/gin-gonic/gin"
+	"github.com/go-sql-driver/mysql"
 )
+
+var db *sql.DB
 
 // album represents data about a record album.
 type album struct {
@@ -23,10 +33,47 @@ var albums = []album{
 }
 
 func main() {
+	log.SetOutput(os.Stdout)
+
+	// Capture connection properties.
+	cfg := mysql.Config{
+		User:   os.Getenv("DB_USER"),
+		Passwd: os.Getenv("DB_PASS"),
+		Addr:   os.Getenv("DB_HOST"),
+		Net:    "tcp",
+		DBName: os.Getenv("DB_NAME"),
+	}
+	// Get a database handle.
+	var err error
+	db, err = sql.Open("mysql", cfg.FormatDSN())
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	pingErr := db.Ping()
+	if pingErr != nil {
+		log.Fatal(pingErr)
+	}
+	fmt.Println("Connected!")
+
+	_, err = db.Exec("CREATE TABLE book (id         INT AUTO_INCREMENT NOT NULL, title      VARCHAR(128) NOT NULL, writer     VARCHAR(255) NOT NULL, price      DECIMAL(5,2) NOT NULL, PRIMARY KEY (`id`));")
+	if err != nil {
+		panic(err)
+	}
+
+	// // Create
+	// res, err = db.Exec("INSERT INTO mytable (some_text) VALUES (?)", "hello world")
+	// if err != nil {
+	//     panic(err)
+	// }
 	router := gin.Default()
 	router.GET("/albums", getAlbums)
 	router.GET("/albums/:id", getAlbumByID)
 	router.POST("/albums", postAlbums)
+
+	router.GET("/books", getBooks)
+	router.GET("/book/:code", getBook)
+	router.POST("/book", addBook)
 
 	router.Run("0.0.0.0:8080")
 }
@@ -65,4 +112,48 @@ func getAlbumByID(c *gin.Context) {
 		}
 	}
 	c.IndentedJSON(http.StatusNotFound, gin.H{"message": "album not found"})
+}
+
+func getBooks(c *gin.Context) {
+	books, err := models.GetBooks(db)
+
+	fmt.Printf("err %v", err)
+	if err != nil {
+		c.AbortWithStatus(http.StatusNotFound)
+	} else {
+		c.IndentedJSON(http.StatusOK, books)
+	}
+}
+
+func getBook(c *gin.Context) {
+	code := c.Param("code")
+
+	id, err := strconv.ParseInt(code, 10, 64)
+	if err != nil {
+		c.AbortWithStatus(http.StatusBadRequest)
+	}
+	fmt.Printf("Hello, %v with type %s!\n", id, reflect.TypeOf(id))
+
+	book, err := models.BookByID(db, id)
+
+	if err != nil {
+		c.AbortWithStatus(http.StatusNotFound)
+	} else {
+		c.IndentedJSON(http.StatusOK, book)
+	}
+}
+
+func addBook(c *gin.Context) {
+	var prod models.Book
+
+	if err := c.BindJSON(&prod); err != nil {
+		c.AbortWithStatus(http.StatusBadRequest)
+	} else {
+		id, err := models.AddBook(db, prod)
+		prod.ID = id
+		if err != nil {
+			c.AbortWithStatus(http.StatusInternalServerError)
+		}
+		c.IndentedJSON(http.StatusCreated, prod)
+	}
 }

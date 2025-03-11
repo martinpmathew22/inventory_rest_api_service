@@ -1,0 +1,39 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: on-failure
+    ports:
+      - "8080:8080"
+    environment:
+      DB_USER: "root"
+      DB_PASS: "password"
+      DB_HOST: mysql
+      DB_NAME: "recordings"
+    depends_on:
+      - "mysql"
+    networks:
+      - "mynet"
+
+  mysql:
+    platform: "linux/x86_64"
+    image: "mysql:latest"
+    container_name: "db1-mysql"
+    restart: on-failure
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_DATABASE: "recordings"
+      MYSQL_ROOT_PASSWORD: "password"
+    networks:
+      - "mynet"
+    healthcheck:
+      test: ["CMD", "/usr/bin/mysql", "--user=root",  "--password=password", "--execute", "SHOW DATABASES;"]
+      interval: 2s
+      timeout: 2s
+      retries: 10
+
+networks:
+  mynet:
+    driver: "bridge"
